@@ -65,6 +65,7 @@ SUBSTITUTE GOODS, TECHNOLOGY, SERVICES, OR ANY CLAIMS BY THIRD PARTIES
 const uint8_t __attribute__((aligned(16))) switchPromptUSB[] = "\r\nPUSH BUTTON PRESSED";
 
 uint8_t APP_MAKE_BUFFER_DMA_READY readBuffer[APP_READ_BUFFER_SIZE];
+uint8_t APP_MAKE_BUFFER_DMA_READY miString[] = "                                 ";
 
 // *****************************************************************************
 /* Application Data
@@ -82,6 +83,117 @@ uint8_t APP_MAKE_BUFFER_DMA_READY readBuffer[APP_READ_BUFFER_SIZE];
 */
 
 APP_DATA appData;
+
+//********************** LRSG v
+
+#define TRANS_COUNT 6
+#define EDO_COUNT 4
+
+char chr=0;
+int acum=0;
+int acum2=0;
+int res=0;
+enum Oper{Suma,Resta,Mult,Div};
+enum Oper oper;
+
+int i;
+int edo=0;
+int edoAnt=0;
+int trans=0;
+int miPrintf_flag=0;
+int miStringCont=0;
+char auxString[] = "                                 ";
+
+					//0-->Inválida
+					//6-->Digito
+					//7-->Operador
+int chrTrans[TRANS_COUNT]=
+					{ 0, 'd','=',  8, 27, 6 };  // Note use of dummy transition 'd'
+int mtzTrans[EDO_COUNT][TRANS_COUNT]={
+					{ 0,  0 , 0 ,  0 , 0 , 1 },
+					{ 1,  1 , 3 ,  99, 99, 2 },
+					{ 2,  2 , 3 ,  99, 99, 2 },
+					{ 3,  3 , 0 ,  0 , 0 , 0 }};
+
+void miPrintf(char* s, int cont) {
+    int i;
+    for (i=0;i<cont;i++)
+        miString[i]=s[i];
+    miPrintf_flag=1;
+    miStringCont=cont;
+}
+
+int calcTrans(char chr) {
+	int trans=0;
+	if ((chr>='0')&&(chr<='9'))	//Digito
+		return(6);
+	for (trans=4;trans>0;trans--)
+		if (chr==chrTrans[trans])
+			break;
+	return(trans);
+}
+
+int sigEdo(int edo, int trans) {
+	return(mtzTrans[edo][trans]);
+}
+
+int ejecutaEdo(int edo) {
+    static int i=0;
+    static int digitosCont=0;
+    static int auxRes=0;
+	switch(edo) {
+		case 0:
+                BSP_LEDOff(APP_USB_LED_1);
+                BSP_LEDOff(APP_USB_LED_2);
+                BSP_LEDOff(APP_USB_LED_3);
+				break;
+		case 1:
+                BSP_LEDOn(APP_USB_LED_1);
+                BSP_LEDOff(APP_USB_LED_2);
+                BSP_LEDOff(APP_USB_LED_3);
+				miPrintf(&chr,1);
+				acum+=(chr-'0');
+				break;
+		case 2:
+                BSP_LEDOff(APP_USB_LED_1);
+                BSP_LEDOn(APP_USB_LED_2);
+                BSP_LEDOff(APP_USB_LED_3);
+				miPrintf(&chr,1);
+				acum*=10;
+				acum+=(chr-'0');
+				break;
+		case 3:
+                BSP_LEDOff(APP_USB_LED_1);
+                BSP_LEDOff(APP_USB_LED_2);
+                BSP_LEDOn(APP_USB_LED_3);
+                auxString[0]='-';
+                auxString[1]='-';
+                auxString[2]='>';
+                acum += 1;
+                auxRes=acum;
+                digitosCont=0;
+                do {
+                    auxRes/=10;
+                    digitosCont++;
+                } while(auxRes);
+                i=digitosCont;
+                do {
+                    auxString[3+i]='0'+(acum%10);
+                    acum/=10;
+                } while(--i>0);
+                auxString[3+digitosCont+1]=0x0D; //Carriage return
+                miPrintf(&auxString[0],digitosCont+5);
+				return(0);
+		case 99:
+                BSP_LEDOn( APP_USB_LED_1);
+                BSP_LEDOn( APP_USB_LED_2);
+                BSP_LEDOn( APP_USB_LED_3);
+				return(0);	//Estado aceptor, rompe la rutina y marca estado de salida
+	}
+	return(edo);	//Para estados no aceptores regresar el estado ejecutado
+}
+
+//********************** LRSG 
 
 
 // *****************************************************************************
@@ -543,13 +655,26 @@ void APP_Tasks (void )
                 {
                     if((appData.readBuffer[i] != 0x0A) && (appData.readBuffer[i] != 0x0D))
                     {
-                        appData.readBuffer[i] = appData.readBuffer[i] + 1;
+                    //    miString[i] = appData.readBuffer[i] + 1; miPrintf_flag=1; miStringCont=i+1;
+
+                        //El código de la calculadora funciona con la sintaxis (1234+1)=
+                        // el PIC32MZ regresará el resultado en justo después del caracter '='
+                        chr=appData.readBuffer[i];
+                        trans=calcTrans(chr);	//Calcular la transición según la entrada del teclado
+                        if (trans) {			//Validar por transición valida (la transición 0 es inválida)
+                            edoAnt=edo;					//Guardar el estado anterior
+                            edo=sigEdo(edoAnt,trans);	//Calcular el siguiente estado
+                            if (edoAnt!=edo)			//Solo si hay cambio de estado hay que ...
+                                edo=ejecutaEdo(edo);	// ... ejecutar el nuevo estado y asignar estado de continuidad
+                        }
                     }
                 }
-                USB_DEVICE_CDC_Write(USB_DEVICE_CDC_INDEX_0,
-                        &appData.writeTransferHandle,
-                        appData.readBuffer, appData.numBytesRead,
-                        USB_DEVICE_CDC_TRANSFER_FLAGS_DATA_COMPLETE);
+                if (miPrintf_flag) {
+                    USB_DEVICE_CDC_Write(USB_DEVICE_CDC_INDEX_0, &appData.writeTransferHandle,
+                                            miString, miStringCont, USB_DEVICE_CDC_TRANSFER_FLAGS_DATA_COMPLETE);
+                    miPrintf_flag=0;
+                    miStringCont=0;
+                }
             }
 
             break;
