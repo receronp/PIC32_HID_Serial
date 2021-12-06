@@ -86,13 +86,16 @@ APP_DATA appData;
 
 //********************** LRSG v
 
-#define TRANS_COUNT 8
-#define EDO_COUNT 9
+#define TRANS_COUNT 9
+#define EDO_COUNT 15
 
-char chr=0;
-int acum1=0;
-int acum2=0;
-int res=0;
+char chr = 0;
+float acum1 = 0.0;
+float acum2 = 0.0;
+float multiplier = 1.0;
+float res = 0.0;
+int dec1 = 0;
+int dec2 = 0;
 enum Oper{Suma,Resta,Mult,Div};
 enum Oper oper;
 
@@ -107,17 +110,23 @@ char auxString[] = "                                 ";
 					//6-->Digito
 					//7-->Operador
 int chrTrans[TRANS_COUNT]=
-					{ 0,'(',')','=',  8, 27, 6 , 7};
+					{ 0, '(', ')', '=', 8, 27, 6, 7, '.'};
 int mtzTrans[EDO_COUNT][TRANS_COUNT]={
-					{ 0, 1 , 0 , 0 , 0 , 0 , 0 , 0},
-					{ 1, 1 , 1 , 1 , 99, 99, 2 , 1},
-					{ 2, 2 , 2 , 2 , 99, 99, 3 , 4},
-					{ 3, 2 , 2 , 2 , 99, 99, 2 , 2},
-					{ 4, 4 , 4 , 4 , 99, 99, 5 , 4},
-					{ 5, 5 , 7 , 5 , 99, 99, 6 , 5},
-					{ 6, 5 , 5 , 5 , 99, 99, 5 , 5},
-					{ 7, 7 , 7 , 8 , 99, 99, 7 , 7},
-					{ 8, 0 , 0 , 0 , 0 , 0 , 0 , 0}};
+                    { 0,  1,  0,  0,  0,  0,  0,  0,  0 },      // Wait for '('
+                    { 1,  1,  1,  1,  99, 99, 2,  1,  1 },      // Wait for first digit
+                    { 2,  2,  2,  2,  99, 99, 3,  7,  4 },      // Wait for a digit or operator
+                    { 3,  2,  2,  2,  99, 99, 2,  2,  2 },      // Wait for a digit
+                    { 4,  4,  4,  4,  99, 99, 5,  4,  4 },      // Wait for '.'
+                    { 5,  5,  5,  5,  99, 99, 6,  7,  5 },      // Wait for a digit or operator
+                    { 6,  5,  5,  5,  99, 99, 5,  5,  5 },      // Wait for a digit
+                    { 7,  7,  7,  7,  99, 99, 8,  7,  7 },      // Wait for operator
+                    { 8,  8,  13, 8,  99, 99, 9,  8,  10},      // Wait for second digit term
+                    { 9,  8,  8,  8,  99, 99, 8,  8,  8 },      // Wait for second digit term
+                    { 10, 10, 10, 10, 99, 99, 11, 10, 10},      // Wait for '.'
+                    { 11, 11, 13, 11, 99, 99, 12, 7,  11},      // Wait for a digit or operator
+                    { 12, 11, 11, 11, 99, 99, 11, 11, 11},      // Wait for a digit
+                    { 13, 13, 13, 14, 99, 99, 13, 13, 0 },      // Wait for '='
+                    { 14, 0,  0,  0,  0,  0,  0,  0,  0 }};     // End
 
 
 void miPrintf(char* s, int cont) {
@@ -139,10 +148,12 @@ int calcTrans(char chr) {
 		case'/':
 				return(7);
 	}
-	for (trans=5;trans>0;trans--)
-		if (chr==chrTrans[trans])
-			break;
-	return(trans);
+    if (chr == '.')
+        return (8);
+    for (trans=5;trans>0;trans--)
+        if (chr==chrTrans[trans])
+            break;
+    return(trans);
 }
 
 int sigEdo(int edo, int trans) {
@@ -161,20 +172,37 @@ int ejecutaEdo(int edo) {
                 BSP_LEDOff( APP_USB_LED_1);
                 BSP_LEDOff( APP_USB_LED_2);
                 BSP_LEDOff( APP_USB_LED_3);
-				acum1=0;
+				acum1=0.0;
+                dec1 = 0;
 				miPrintf(&chr,1);
 				break;
 		case 2:
 				miPrintf(&chr,1);
-				acum1*=10;
-				acum1+=(chr-'0');
+				acum1*=10.0;
+				acum1+=(float)(chr-'0');
 				break;
 		case 3:
 				miPrintf(&chr,1);
-				acum1*=10;
-				acum1+=(chr-'0');
+				acum1*=10.0;
+				acum1+=(float)(chr-'0');
 				return(2);
 		case 4:
+                multiplier = 1.0;
+				miPrintf(&chr,1);
+                break;
+        case 5:
+                dec1++;
+				miPrintf(&chr,1);
+                multiplier /= 10.0;
+                acum1 += ((chr - '0') * multiplier);
+                break;
+        case 6:
+                dec1++;
+				miPrintf(&chr,1);
+                multiplier /= 10.0;
+                acum1 += ((chr - '0') * multiplier);
+                return (5);
+        case 7:
                 BSP_LEDOn(  APP_USB_LED_1);
                 BSP_LEDOff( APP_USB_LED_2);
                 BSP_LEDOff( APP_USB_LED_3);
@@ -193,28 +221,45 @@ int ejecutaEdo(int edo) {
 							oper=Div;
 							break;
 				}
-				acum2=0;	//Preparar la entrada al estado 4
+				acum2=0.0;
+                dec2 = 0;
 				break;
-		case 5:
+        case 8:
                 BSP_LEDOff( APP_USB_LED_1);
                 BSP_LEDOn(  APP_USB_LED_2);
                 BSP_LEDOff( APP_USB_LED_3);
 				miPrintf(&chr,1);
-				acum2*=10;
-				acum2=(chr-'0');
+				acum2*=10.0;
+				acum2=(float)(chr-'0');
 				break;
-		case 6:
+        case 9:
 				miPrintf(&chr,1);
 				acum2*=10;
 				acum2+=(chr-'0');
-				return(5);
-		case 7:
+				return(8);
+        case 10:
+                multiplier = 1.0;
+                miPrintf(&chr,1);
+                break;
+        case 11:
+                dec2++;
+				miPrintf(&chr,1);
+                multiplier /= 10.0;
+                acum2 += ((chr - '0') * multiplier);
+                break;
+        case 12:
+                dec2++;
+				miPrintf(&chr,1);
+                multiplier /= 10.0;
+                acum2 += ((chr - '0') * multiplier);
+                return (11);
+        case 13:
                 BSP_LEDOff( APP_USB_LED_1);
                 BSP_LEDOff( APP_USB_LED_2);
                 BSP_LEDOn(  APP_USB_LED_3);
 				miPrintf(&chr,1);
 				break;
-		case 8:
+        case 14:
                 BSP_LEDOn( APP_USB_LED_1);
                 BSP_LEDOn( APP_USB_LED_2);
                 BSP_LEDOn( APP_USB_LED_3);
@@ -242,23 +287,30 @@ int ejecutaEdo(int edo) {
                 } else {
                     negativoFlag=0;
                 }
-                auxRes=res;
+                auxRes=(int)res;
                 digitosCont=0;
                 do {
                     auxRes/=10;
                     digitosCont++;
                 } while(auxRes);
+                auxRes=(int)res;
+                res -= auxRes;
                 i=digitosCont;
                 do {
-                    auxString[negativoFlag+i]='0'+(res%10);
-                    res/=10;
+                    auxString[negativoFlag+i]='0'+(auxRes%10);
+                    auxRes/=10;
                 } while(--i>=0);
+                auxString[digitosCont+1+negativoFlag]='.'; //Decimal point
+                for (i=1; i<=5; i++) {
+                    res*=10;
+                    auxString[digitosCont+1+negativoFlag+i]='0'+((int)res%10); //Precision x i
+                }
                 auxString[0]='=';
                 if (negativoFlag) {
                     auxString[1]='-';
                 }
-                auxString[digitosCont+1+negativoFlag]=0x0D; //Carriage return
-                miPrintf(&auxString[0],digitosCont+1+negativoFlag+1);
+                auxString[digitosCont+1+negativoFlag+6]=0x0D; //Carriage return
+                miPrintf(&auxString[0],digitosCont+1+negativoFlag+1+6);
 				return(0);
 		case 99:
 				//printf("\n<<<Captura cancelada>>>\n");
